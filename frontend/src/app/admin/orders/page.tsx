@@ -18,6 +18,7 @@ const STATUSES = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 
 interface AdminOrder extends Order {
   customer_name?: string;
   customer_email?: string;
+  email?: string;
 }
 
 export default function AdminOrders() {
