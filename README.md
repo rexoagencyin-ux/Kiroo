@@ -83,3 +83,4 @@ CSRF protection, configurable rate limiting, Helmet headers, Zod input validatio
 ## 7. API overview
 
 A full route map lives in [`backend/README.md`](backend/README.md).
+
