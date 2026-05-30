@@ -38,6 +38,7 @@ export const env = {
   db: {
     connectionString: process.env.DATABASE_URL,
     ssl: bool('PGSSL', false),
+    poolMax: num('PG_POOL_MAX', 10),
   },
 
   jwt: {

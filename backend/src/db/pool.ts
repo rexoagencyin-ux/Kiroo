@@ -5,7 +5,9 @@ import { logger } from '../config/logger';
 export const pool = new Pool({
   connectionString: env.db.connectionString,
   ssl: env.db.ssl ? { rejectUnauthorized: false } : undefined,
-  max: 20,
+  // Keep this low on serverless platforms (e.g. Vercel) and prefer a pooled
+  // connection string (PgBouncer / Neon / Supabase pooler). Configure via PG_POOL_MAX.
+  max: env.db.poolMax,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });
