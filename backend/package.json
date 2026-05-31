@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "db:migrate": "ts-node src/db/migrate.ts",
     "db:seed": "ts-node src/db/seed.ts",
+    "db:admin": "ts-node src/db/create-admin.ts",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

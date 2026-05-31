@@ -20,7 +20,7 @@ npm run db:migrate   # creates tables + indexes
 npm run db:seed      # categories, products, banners, coupons, admin user
 ```
 
-Default admin after seed: `admin@modernshop.com` / `Admin@12345` — **change immediately in production.**
+Default admin after seed: `rexoagency.in@gmail.com` / `Mm12345@` — **change immediately in production.** (Or run `npm run db:admin` to create/reset it.)
 
 ## 2. Backend API
 

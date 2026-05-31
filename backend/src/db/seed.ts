@@ -60,7 +60,7 @@ async function seed() {
     `INSERT INTO users (name, email, password_hash, role, is_verified, provider)
      VALUES ($1,$2,$3,'admin',TRUE,'email')
      ON CONFLICT (email) DO UPDATE SET role='admin', password_hash=EXCLUDED.password_hash, is_verified=TRUE`,
-    ['Store Admin', env.admin.email, adminHash]
+    [env.admin.name, env.admin.email, adminHash]
   );
   logger.info(`Admin ready: ${env.admin.email}`);
 

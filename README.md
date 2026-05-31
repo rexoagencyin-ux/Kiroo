@@ -37,7 +37,7 @@ npm run db:seed             # seeds categories, sample products, and an admin us
 npm run dev                 # starts API on http://localhost:5000
 ```
 
-The seed creates an admin: `admin@modernshop.com` / `Admin@12345` (change it in production).
+The seed creates an admin: `rexoagency.in@gmail.com` / `Mm12345@` (change it in production). You can also create/reset the admin anytime with `npm run db:admin`.
 
 ## 3. Frontend setup
 

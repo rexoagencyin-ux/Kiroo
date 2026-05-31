@@ -88,8 +88,9 @@ export const env = {
   },
 
   admin: {
-    email: process.env.ADMIN_EMAIL ?? 'admin@modernshop.com',
-    password: process.env.ADMIN_PASSWORD ?? 'Admin@12345',
+    email: process.env.ADMIN_EMAIL ?? 'rexoagency.in@gmail.com',
+    password: process.env.ADMIN_PASSWORD ?? 'Mm12345@',
+    name: process.env.ADMIN_NAME ?? 'Rexo Admin',
   },
 
   rateLimit: {
