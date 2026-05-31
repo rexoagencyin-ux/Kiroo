@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Heart, LogOut, Menu, Package, ShoppingCart, User2, LayoutDashboard, X, ChevronRight } from 'lucide-react';
 import { SearchBar } from './search-bar';
@@ -17,20 +17,15 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useCart } from '@/components/providers/cart-provider';
-import { api } from '@/lib/api';
-import { Category } from '@/lib/types';
+import { CATEGORIES } from '@/lib/categories';
 import { getInitials } from '@/lib/utils';
 
 export function Header() {
   const { user, logout } = useAuth();
   const { count } = useCart();
   const router = useRouter();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const categories = CATEGORIES;
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    api.get<{ data: Category[] }>('/categories', false).then((r) => setCategories(r.data)).catch(() => {});
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -150,7 +145,7 @@ export function Header() {
             All Products
           </Link>
           {categories.map((c) => (
-            <Link key={c.id} href={`/category/${c.slug}`} className="whitespace-nowrap text-muted-foreground hover:text-primary">
+            <Link key={c.slug} href={`/category/${c.slug}`} className="whitespace-nowrap text-muted-foreground hover:text-primary">
               {c.name}
             </Link>
           ))}
@@ -180,7 +175,7 @@ export function Header() {
               </Link>
               {categories.map((c) => (
                 <Link
-                  key={c.id}
+                  key={c.slug}
                   href={`/category/${c.slug}`}
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center justify-between border-b py-3 text-muted-foreground"

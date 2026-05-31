@@ -2,6 +2,8 @@
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 // Firebase web config. These values are safe to expose in client code.
 // They can be overridden with NEXT_PUBLIC_* env vars on Vercel.
@@ -19,12 +21,30 @@ const firebaseConfig = {
 
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
+let db: Firestore | undefined;
+let storage: FirebaseStorage | undefined;
+
+function getApp_(): FirebaseApp {
+  if (!app) app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  return app;
+}
 
 /** Lazily initialise Firebase (browser only) and return the Auth instance. */
 export function getFirebaseAuth(): Auth {
-  if (!app) app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-  if (!auth) auth = getAuth(app);
+  if (!auth) auth = getAuth(getApp_());
   return auth;
+}
+
+/** Firestore database instance (lazy). */
+export function getDb(): Firestore {
+  if (!db) db = getFirestore(getApp_());
+  return db;
+}
+
+/** Firebase Storage instance (lazy) — used for product image uploads. */
+export function getFirebaseStorage(): FirebaseStorage {
+  if (!storage) storage = getStorage(getApp_());
+  return storage;
 }
 
 /** The email that is treated as the store administrator. */

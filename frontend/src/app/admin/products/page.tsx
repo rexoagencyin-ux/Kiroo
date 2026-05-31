@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Image from 'next/image';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { Plus, Pencil, Trash2, Search, Upload, X, Loader2, PackagePlus } from 'lucide-react';
+import { useProducts, createProduct, updateProduct, deleteProduct, uploadImage, ProductInput } from '@/lib/store';
+import { CATEGORIES } from '@/lib/categories';
 import { useToast } from '@/components/providers/toast-provider';
-import { Category, Pagination, Product } from '@/lib/types';
+import { Product } from '@/lib/types';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,194 +15,232 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ImageUploader } from '@/components/admin/image-uploader';
 import { formatPrice } from '@/lib/utils';
 
 interface FormState {
-  name: string; brand: string; category_id: string; description: string; short_desc: string;
-  price: string; compare_price: string; sku: string; stock: string; images: string[];
-  specsText: string; tags: string;
-  is_featured: boolean; is_trending: boolean; is_new_arrival: boolean; is_flash_sale: boolean; flash_price: string; is_active: boolean;
+  name: string;
+  brand: string;
+  category: string;
+  description: string;
+  price: string;
+  compare_price: string;
+  stock: string;
+  images: string[];
+  is_featured: boolean;
+  is_trending: boolean;
+  is_new_arrival: boolean;
+  is_flash_sale: boolean;
+  flash_price: string;
+  is_active: boolean;
 }
 
 const emptyForm: FormState = {
-  name: '', brand: '', category_id: '', description: '', short_desc: '', price: '', compare_price: '',
-  sku: '', stock: '0', images: [], specsText: '', tags: '',
-  is_featured: false, is_trending: false, is_new_arrival: false, is_flash_sale: false, flash_price: '', is_active: true,
+  name: '', brand: '', category: CATEGORIES[0].slug, description: '', price: '', compare_price: '',
+  stock: '10', images: [], is_featured: false, is_trending: false, is_new_arrival: false,
+  is_flash_sale: false, flash_price: '', is_active: true,
 };
 
 export default function AdminProducts() {
   const { toast } = useToast();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [pagination, setPagination] = useState<Pagination | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { products, loading } = useProducts(false); // include inactive in admin
   const [q, setQ] = useState('');
-  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  const load = useCallback(() => {
-    api.get<{ data: Product[]; pagination: Pagination }>(`/admin/products?q=${encodeURIComponent(q)}&page=${page}&limit=20`)
-      .then((r) => { setProducts(r.data); setPagination(r.pagination); })
-      .catch(() => {});
-  }, [q, page]);
-
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { api.get<{ data: Category[] }>('/categories', false).then((r) => setCategories(r.data)).catch(() => {}); }, []);
+  const filtered = useMemo(
+    () => products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())),
+    [products, q]
+  );
 
   const openNew = () => { setEditId(null); setForm(emptyForm); setOpen(true); };
   const openEdit = (p: Product) => {
     setEditId(p.id);
     setForm({
-      name: p.name, brand: p.brand ?? '', category_id: p.category_id ?? '', description: p.description ?? '',
-      short_desc: p.short_desc ?? '', price: String(p.price), compare_price: p.compare_price ? String(p.compare_price) : '',
-      sku: p.sku ?? '', stock: String(p.stock), images: p.images ?? [],
-      specsText: Object.entries(p.specifications ?? {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
-      tags: (p.tags ?? []).join(', '),
-      is_featured: p.is_featured, is_trending: p.is_trending, is_new_arrival: p.is_new_arrival,
-      is_flash_sale: p.is_flash_sale, flash_price: p.flash_price ? String(p.flash_price) : '', is_active: p.is_active ?? true,
+      name: p.name, brand: p.brand ?? '', category: p.category_slug || CATEGORIES[0].slug,
+      description: p.description ?? '', price: String(p.price),
+      compare_price: p.compare_price ? String(p.compare_price) : '', stock: String(p.stock),
+      images: p.images ?? [], is_featured: p.is_featured, is_trending: p.is_trending,
+      is_new_arrival: p.is_new_arrival, is_flash_sale: p.is_flash_sale,
+      flash_price: p.flash_price ? String(p.flash_price) : '', is_active: p.is_active !== false,
     });
     setOpen(true);
   };
 
+  const handleFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const urls = await Promise.all(Array.from(files).map((f) => uploadImage(f)));
+      setForm((f) => ({ ...f, images: [...f.images, ...urls] }));
+      toast('Image uploaded', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Image upload failed (enable Firebase Storage)', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const save = async () => {
+    if (!form.name.trim()) return toast('Product name is required', 'error');
+    if (!form.price || Number(form.price) <= 0) return toast('Enter a valid price', 'error');
     setSaving(true);
-    const specifications: Record<string, string> = {};
-    form.specsText.split('\n').forEach((line) => {
-      const [k, ...rest] = line.split(':');
-      if (k && rest.length) specifications[k.trim()] = rest.join(':').trim();
-    });
-    const payload = {
-      name: form.name, brand: form.brand || null, category_id: form.category_id || null,
-      description: form.description, short_desc: form.short_desc,
-      price: Number(form.price), compare_price: form.compare_price ? Number(form.compare_price) : null,
-      sku: form.sku || null, stock: Number(form.stock), images: form.images, specifications,
-      tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
-      is_featured: form.is_featured, is_trending: form.is_trending, is_new_arrival: form.is_new_arrival,
-      is_flash_sale: form.is_flash_sale, flash_price: form.flash_price ? Number(form.flash_price) : null, is_active: form.is_active,
+    const payload: ProductInput = {
+      name: form.name.trim(),
+      brand: form.brand.trim(),
+      category: form.category,
+      description: form.description,
+      short_desc: form.description.slice(0, 120),
+      price: Number(form.price),
+      compare_price: form.compare_price ? Number(form.compare_price) : null,
+      flash_price: form.is_flash_sale && form.flash_price ? Number(form.flash_price) : null,
+      stock: Number(form.stock) || 0,
+      images: form.images,
+      is_featured: form.is_featured,
+      is_trending: form.is_trending,
+      is_new_arrival: form.is_new_arrival,
+      is_flash_sale: form.is_flash_sale,
+      is_active: form.is_active,
     };
     try {
-      if (editId) await api.patch(`/admin/products/${editId}`, payload);
-      else await api.post('/admin/products', payload);
-      toast(editId ? 'Product updated' : 'Product created', 'success');
+      if (editId) await updateProduct(editId, payload);
+      else await createProduct(payload);
+      toast(editId ? 'Product updated ✓' : 'Product added ✓', 'success');
       setOpen(false);
-      load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Save failed', 'error');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = async (id: string) => {
-    if (!confirm('Delete this product?')) return;
+  const remove = async (p: Product) => {
+    if (!confirm(`Delete "${p.name}"?`)) return;
     try {
-      await api.delete(`/admin/products/${id}`);
+      await deleteProduct(p.id);
       toast('Product deleted', 'success');
-      load();
     } catch {
       toast('Delete failed', 'error');
     }
   };
 
-  const toggle = (k: keyof FormState) => setForm((f) => ({ ...f, [k]: !f[k] }));
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-accent">Products</h1>
-        <Button onClick={openNew}><Plus className="h-4 w-4" /> Add product</Button>
+        <div>
+          <h1 className="text-2xl font-bold text-accent">Products</h1>
+          <p className="text-sm text-muted-foreground">{products.length} products · saved live to Firebase</p>
+        </div>
+        <Button onClick={openNew}><Plus className="h-4 w-4" /> Add Product</Button>
       </div>
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} placeholder="Search products…" className="pl-9" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…" className="pl-9" />
       </div>
 
-      <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b text-left text-muted-foreground">
-            <tr><th className="p-3">Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Flags</th><th></th></tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.id} className="border-b last:border-0">
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted">
-                      <Image src={p.images?.[0] || '/placeholder.png'} alt={p.name} fill className="object-cover" sizes="40px" />
-                    </div>
-                    <div className="min-w-0"><p className="truncate font-medium text-accent">{p.name}</p><p className="text-xs text-muted-foreground">{p.sku}</p></div>
-                  </div>
-                </td>
-                <td>{(p as Product & { category_name?: string }).category_name ?? '—'}</td>
-                <td>{formatPrice(p.price)}</td>
-                <td><span className={p.stock <= (p.low_stock_threshold ?? 5) ? 'text-destructive font-medium' : ''}>{p.stock}</span></td>
-                <td>
-                  <div className="flex flex-wrap gap-1">
-                    {p.is_featured && <Badge variant="secondary">Feat</Badge>}
-                    {p.is_flash_sale && <Badge variant="destructive">Flash</Badge>}
-                    {!p.is_active && <Badge variant="outline">Hidden</Badge>}
-                  </div>
-                </td>
-                <td>
-                  <div className="flex gap-1">
-                    <button onClick={() => openEdit(p)} className="text-muted-foreground hover:text-primary" aria-label="Edit"><Pencil className="h-4 w-4" /></button>
-                    <button onClick={() => remove(p.id)} className="text-muted-foreground hover:text-destructive" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-
-      {pagination && pagination.totalPages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
-          <span className="px-3 py-1.5 text-sm">Page {page} of {pagination.totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+      ) : filtered.length === 0 ? (
+        <Card className="flex flex-col items-center gap-3 py-16 text-center">
+          <PackagePlus className="h-12 w-12 text-muted-foreground/40" />
+          <p className="font-medium text-accent">No products yet</p>
+          <p className="text-sm text-muted-foreground">Click “Add Product” to create your first one.</p>
+          <Button onClick={openNew}><Plus className="h-4 w-4" /> Add Product</Button>
+        </Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((p) => (
+            <Card key={p.id} className="flex gap-3 p-3">
+              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
+                <Image src={p.images?.[0] || '/placeholder.png'} alt={p.name} fill className="object-cover" sizes="80px" />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <p className="truncate font-medium text-accent">{p.name}</p>
+                <p className="text-xs text-muted-foreground">{p.category_name}</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="font-semibold text-accent">{formatPrice(p.price)}</span>
+                  <span className={`text-xs ${p.stock <= 5 ? 'text-destructive' : 'text-muted-foreground'}`}>Stock: {p.stock}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {p.is_featured && <Badge variant="secondary">Featured</Badge>}
+                  {p.is_flash_sale && <Badge variant="destructive">Flash</Badge>}
+                  {!p.is_active && <Badge variant="outline">Hidden</Badge>}
+                </div>
+                <div className="mt-auto flex gap-1 pt-2">
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(p)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>{editId ? 'Edit product' : 'Add product'}</DialogTitle></DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label>Brand</Label><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></div>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{editId ? 'Edit Product' : 'Add Product'}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            {/* Images */}
             <div>
-              <Label>Category</Label>
-              <Select value={form.category_id} onValueChange={(v) => setForm({ ...form, category_id: v })}>
-                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Label>Product Images</Label>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {form.images.map((url, i) => (
+                  <div key={i} className="relative h-20 w-20 overflow-hidden rounded-md border">
+                    <Image src={url} alt={`img ${i + 1}`} fill className="object-cover" sizes="80px" />
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }))}
+                      className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white" aria-label="Remove">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-xs text-muted-foreground hover:border-primary">
+                  {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                  Upload
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+                </label>
+              </div>
             </div>
-            <div><Label>Price (₹)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>
-            <div><Label>Compare price (₹)</Label><Input type="number" value={form.compare_price} onChange={(e) => setForm({ ...form, compare_price: e.target.value })} /></div>
-            <div><Label>SKU</Label><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></div>
-            <div><Label>Stock</Label><Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Short description</Label><Input value={form.short_desc} onChange={(e) => setForm({ ...form, short_desc: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Images</Label><ImageUploader value={form.images} onChange={(urls) => setForm({ ...form, images: urls })} /><Input className="mt-2" placeholder="https://… , https://…" value={form.images.join(', ')} onChange={(e) => setForm({ ...form, images: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} /></div>
-            <div className="sm:col-span-2"><Label>Specifications (one per line: Key: Value)</Label><Textarea value={form.specsText} onChange={(e) => setForm({ ...form, specsText: e.target.value })} placeholder={'Brand: Modern\nWarranty: 1 Year'} /></div>
-            <div className="sm:col-span-2"><Label>Tags (comma separated)</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} /></div>
 
-            <div className="sm:col-span-2 flex flex-wrap gap-4 rounded-md border p-3 text-sm">
-              {(['is_featured', 'is_trending', 'is_new_arrival', 'is_flash_sale', 'is_active'] as const).map((k) => (
+            <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Pulse Pro Smartwatch" /></div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Brand</Label><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></div>
+              <div>
+                <Label>Category</Label>
+                <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c.slug} value={c.slug}>{c.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div><Label>Price (₹) *</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>
+              <div><Label>MRP (₹)</Label><Input type="number" value={form.compare_price} onChange={(e) => setForm({ ...form, compare_price: e.target.value })} /></div>
+              <div><Label>Stock</Label><Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} /></div>
+            </div>
+
+            <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the product…" /></div>
+
+            <div className="flex flex-wrap gap-4 rounded-md border p-3 text-sm">
+              {([['is_featured', 'Featured'], ['is_trending', 'Trending'], ['is_new_arrival', 'New'], ['is_flash_sale', 'Flash Sale'], ['is_active', 'Active']] as const).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-2">
-                  <input type="checkbox" checked={form[k]} onChange={() => toggle(k)} className="h-4 w-4 accent-[#4CAF50]" />
-                  {k.replace('is_', '').replace('_', ' ')}
+                  <input type="checkbox" checked={form[k]} onChange={() => setForm((f) => ({ ...f, [k]: !f[k] }))} className="h-4 w-4 accent-[#4CAF50]" />
+                  {label}
                 </label>
               ))}
             </div>
             {form.is_flash_sale && (
-              <div className="sm:col-span-2"><Label>Flash price (₹)</Label><Input type="number" value={form.flash_price} onChange={(e) => setForm({ ...form, flash_price: e.target.value })} /></div>
+              <div><Label>Flash Sale Price (₹)</Label><Input type="number" value={form.flash_price} onChange={(e) => setForm({ ...form, flash_price: e.target.value })} /></div>
             )}
+
+            <Button onClick={save} loading={saving} className="w-full" size="lg">
+              {editId ? 'Update Product' : 'Add Product'}
+            </Button>
           </div>
-          <Button onClick={save} loading={saving} className="mt-2 w-full">{editId ? 'Update' : 'Create'} product</Button>
         </DialogContent>
       </Dialog>
     </div>

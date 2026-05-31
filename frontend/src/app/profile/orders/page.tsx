@@ -1,38 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Package } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Package, Loader2 } from 'lucide-react';
+import { useAuth } from '@/components/providers/auth-provider';
+import { useUserOrders, updateOrderStatus } from '@/lib/store';
 import { useToast } from '@/components/providers/toast-provider';
-import { Order } from '@/lib/types';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatDate, formatPrice } from '@/lib/utils';
 
 export default function OrdersPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = () => {
-    api.get<{ data: Order[] }>('/orders').then((r) => setOrders(r.data)).catch(() => {}).finally(() => setLoading(false));
-  };
-  useEffect(load, []);
+  const { orders, loading } = useUserOrders(user?.id ?? null);
 
   const cancel = async (id: string) => {
     try {
-      await api.post(`/orders/${id}/cancel`);
+      await updateOrderStatus(id, { status: 'cancelled' });
       toast('Order cancelled', 'success');
-      load();
     } catch {
       toast('Could not cancel order', 'error');
     }
   };
 
-  if (loading) return <p className="text-muted-foreground">Loading orders…</p>;
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
   if (orders.length === 0) {
     return (
@@ -54,15 +47,13 @@ export default function OrdersPage() {
               <p className="font-medium text-accent">#{o.order_number}</p>
               <p className="text-xs text-muted-foreground">Placed {formatDate(o.created_at)}</p>
             </div>
-            <Badge variant={o.status === 'delivered' ? 'success' : o.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">
-              {o.status}
-            </Badge>
+            <Badge variant={o.status === 'delivered' ? 'success' : o.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">{o.status}</Badge>
           </div>
           <div className="mt-3 space-y-2">
             {(o.items ?? []).slice(0, 3).map((it, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted">
-                  <Image src={it.image_url || '/placeholder.png'} alt={it.name} fill className="object-cover" sizes="40px" />
+                  <Image src={(it as { image?: string }).image || it.image_url || '/placeholder.png'} alt={it.name} fill className="object-cover" sizes="40px" />
                 </div>
                 <span className="flex-1 truncate text-sm">{it.name} × {it.quantity}</span>
                 <span className="text-sm">{formatPrice(it.total)}</span>
@@ -73,10 +64,8 @@ export default function OrdersPage() {
             <span className="font-semibold text-accent">{formatPrice(o.total)}</span>
             <div className="flex gap-2">
               <Button asChild size="sm" variant="outline"><Link href={`/track/${o.order_number}`}>Track</Link></Button>
-              {!['delivered', 'cancelled', 'shipped', 'returned'].includes(o.status) && (
-                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(o.id)}>
-                  Cancel
-                </Button>
+              {!['delivered', 'cancelled', 'shipped'].includes(o.status) && (
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(o.id)}>Cancel</Button>
               )}
             </div>
           </div>

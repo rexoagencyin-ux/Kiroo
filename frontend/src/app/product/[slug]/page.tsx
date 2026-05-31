@@ -1,39 +1,44 @@
-import { notFound } from 'next/navigation';
-import type { Metadata } from 'next';
-import { serverFetch } from '@/lib/server-api';
-import { Product, Review } from '@/lib/types';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
+import { getProductBySlug, getRelated } from '@/lib/store';
+import { Product } from '@/lib/types';
 import { ProductDetail } from './product-detail';
+import { Button } from '@/components/ui/button';
 
-interface Props {
-  params: Promise<{ slug: string }>;
-}
+export default function ProductPage() {
+  const params = useParams<{ slug: string }>();
+  const slug = params?.slug;
+  const [product, setProduct] = useState<Product | null>(null);
+  const [related, setRelated] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
-interface ProductResponse {
-  data: Product;
-  related: Product[];
-  reviews: Review[];
-}
+  useEffect(() => {
+    if (!slug) return;
+    setLoading(true);
+    getProductBySlug(slug)
+      .then(async (p) => {
+        setProduct(p);
+        if (p?.category_slug) setRelated(await getRelated(p.category_slug, p.id));
+      })
+      .finally(() => setLoading(false));
+  }, [slug]);
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params;
-  const res = await serverFetch<ProductResponse>(`/products/${slug}`);
-  const p = res?.data;
-  if (!p) return { title: 'Product' };
-  return {
-    title: p.meta_title || p.name,
-    description: p.meta_description || p.short_desc || p.description?.slice(0, 160) || p.name,
-    openGraph: {
-      title: p.name,
-      description: p.short_desc || '',
-      images: p.images?.length ? [{ url: p.images[0] }] : [],
-    },
-  };
-}
+  if (loading) {
+    return <div className="container flex justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
 
-export default async function ProductPage({ params }: Props) {
-  const { slug } = await params;
-  const res = await serverFetch<ProductResponse>(`/products/${slug}`);
-  if (!res?.data) notFound();
+  if (!product) {
+    return (
+      <div className="container py-24 text-center">
+        <h1 className="text-xl font-bold text-accent">Product not found</h1>
+        <Button asChild className="mt-4"><Link href="/products">Browse products</Link></Button>
+      </div>
+    );
+  }
 
-  return <ProductDetail product={res.data} related={res.related ?? []} reviews={res.reviews ?? []} />;
+  return <ProductDetail product={product} related={related} reviews={[]} />;
 }

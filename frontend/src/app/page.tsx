@@ -1,71 +1,87 @@
-import { serverFetch } from '@/lib/server-api';
-import { Banner, Category, Product } from '@/lib/types';
+'use client';
+
+import { useProducts } from '@/lib/store';
+import { CATEGORIES } from '@/lib/categories';
+import { Category } from '@/lib/types';
 import { HeroSlider } from '@/components/home/hero-slider';
 import { CategoryGrid } from '@/components/home/category-grid';
 import { ProductRow } from '@/components/home/product-row';
 import { FlashSale } from '@/components/home/flash-sale';
-import { PromoBanners } from '@/components/home/promo-banners';
 import { Testimonials } from '@/components/home/testimonials';
 import { FeatureStrip } from '@/components/home/feature-strip';
 import { SectionHeading } from '@/components/home/section-heading';
+import { ProductGridSkeleton } from '@/components/product/product-grid-skeleton';
 
-export const revalidate = 60;
+const categoryCards: Category[] = CATEGORIES.map((c) => ({
+  id: c.slug,
+  name: c.name,
+  slug: c.slug,
+  description: null,
+  image_url: c.image,
+}));
 
-interface HomeData {
-  featured: Product[];
-  trending: Product[];
-  newArrivals: Product[];
-  flashSale: Product[];
-}
+export default function HomePage() {
+  const { products, loading } = useProducts(true);
 
-export default async function HomePage() {
-  const [bannersRes, categoriesRes, home] = await Promise.all([
-    serverFetch<{ data: Banner[] }>('/banners'),
-    serverFetch<{ data: Category[] }>('/categories'),
-    serverFetch<HomeData>('/products/home'),
-  ]);
-
-  const heroBanners = (bannersRes?.data ?? []).filter((b) => b.position === 'hero');
-  const promoBanners = (bannersRes?.data ?? []).filter((b) => b.position === 'promo');
-  const categories = categoriesRes?.data ?? [];
-  const data = home ?? { featured: [], trending: [], newArrivals: [], flashSale: [] };
+  const featured = products.filter((p) => p.is_featured).slice(0, 10);
+  const trending = products.filter((p) => p.is_trending).slice(0, 10);
+  const newArrivals = products.filter((p) => p.is_new_arrival).slice(0, 10);
+  const flashSale = products.filter((p) => p.is_flash_sale).slice(0, 10);
+  const latest = [...products].slice(0, 10);
 
   return (
     <div className="pb-10">
-      <HeroSlider banners={heroBanners} />
-
+      <HeroSlider banners={[]} />
       <FeatureStrip />
 
-      {categories.length > 0 && (
+      <section className="container mt-10">
+        <SectionHeading title="Shop by Category" href="/products" />
+        <CategoryGrid categories={categoryCards} />
+      </section>
+
+      {loading ? (
         <section className="container mt-10">
-          <SectionHeading title="Shop by Category" href="/products" />
-          <CategoryGrid categories={categories} />
+          <ProductGridSkeleton count={10} />
         </section>
-      )}
-
-      {data.flashSale.length > 0 && <FlashSale products={data.flashSale} />}
-
-      {data.featured.length > 0 && (
+      ) : products.length === 0 ? (
         <section className="container mt-10">
-          <SectionHeading title="Featured Products" subtitle="Hand-picked favourites" href="/products?filter=featured" />
-          <ProductRow products={data.featured} />
+          <div className="rounded-2xl border bg-white py-16 text-center">
+            <p className="text-lg font-semibold text-accent">Store is being set up 🛠️</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Products added from the admin panel will appear here instantly.
+            </p>
+          </div>
         </section>
-      )}
+      ) : (
+        <>
+          {flashSale.length > 0 && <FlashSale products={flashSale} />}
 
-      {promoBanners.length > 0 && <PromoBanners banners={promoBanners} />}
+          {featured.length > 0 && (
+            <section className="container mt-10">
+              <SectionHeading title="Featured Products" subtitle="Hand-picked favourites" href="/products?filter=featured" />
+              <ProductRow products={featured} />
+            </section>
+          )}
 
-      {data.trending.length > 0 && (
-        <section className="container mt-10">
-          <SectionHeading title="Trending Now" subtitle="What everyone is buying" href="/products?filter=trending" />
-          <ProductRow products={data.trending} />
-        </section>
-      )}
+          {trending.length > 0 && (
+            <section className="container mt-10">
+              <SectionHeading title="Trending Now" subtitle="What everyone is buying" href="/products?filter=trending" />
+              <ProductRow products={trending} />
+            </section>
+          )}
 
-      {data.newArrivals.length > 0 && (
-        <section className="container mt-10">
-          <SectionHeading title="New Arrivals" subtitle="Fresh drops just for you" href="/products?filter=new" />
-          <ProductRow products={data.newArrivals} />
-        </section>
+          {newArrivals.length > 0 && (
+            <section className="container mt-10">
+              <SectionHeading title="New Arrivals" subtitle="Fresh drops just for you" href="/products?filter=new" />
+              <ProductRow products={newArrivals} />
+            </section>
+          )}
+
+          <section className="container mt-10">
+            <SectionHeading title="All Products" href="/products" />
+            <ProductRow products={latest} />
+          </section>
+        </>
       )}
 
       <Testimonials />
