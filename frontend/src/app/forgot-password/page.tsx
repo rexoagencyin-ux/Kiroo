@@ -3,12 +3,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { MailCheck } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useAuth } from '@/components/providers/auth-provider';
+import { useToast } from '@/components/providers/toast-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function ForgotPasswordPage() {
+  const { sendReset } = useAuth();
+  const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -17,10 +20,16 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/auth/forgot-password', { email }, false);
+      await sendReset(email);
       setSent(true);
-    } catch {
-      setSent(true); // do not reveal whether the email exists
+    } catch (err) {
+      // Don't reveal whether the email exists, but surface real config errors.
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('not enabled') || msg.includes('domain')) {
+        toast(msg, 'error');
+      } else {
+        setSent(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -34,7 +43,7 @@ export default function ForgotPasswordPage() {
             <MailCheck className="mx-auto h-12 w-12 text-primary" />
             <h1 className="mt-4 text-xl font-bold text-accent">Check your email</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              If an account exists for <strong>{email}</strong>, we&apos;ve sent a password reset link. It expires in 30 minutes.
+              If an account exists for <strong>{email}</strong>, we&apos;ve sent a password reset link. Check your inbox (and spam) and follow the link to set a new password.
             </p>
             <Button asChild className="mt-6 w-full">
               <Link href="/login">Back to login</Link>

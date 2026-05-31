@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useToast } from '@/components/providers/toast-provider';
-import { ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,17 +22,17 @@ export function RegisterForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.password.length < 8) {
-      toast('Password must be at least 8 characters', 'error');
+    if (form.password.length < 6) {
+      toast('Password must be at least 6 characters', 'error');
       return;
     }
     setLoading(true);
     try {
       const user = await register(form);
-      toast(`Welcome, ${user.name.split(' ')[0]}! Check your email.`, 'success');
-      router.push(redirect);
+      toast(`Welcome, ${user.name.split(' ')[0]}!`, 'success');
+      router.push(user.role === 'admin' ? '/admin' : redirect);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Registration failed', 'error');
+      toast(err instanceof Error ? err.message : 'Registration failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -60,7 +59,7 @@ export function RegisterForm() {
           </div>
           <div>
             <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="At least 8 characters" />
+            <Input id="password" type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="At least 6 characters" />
           </div>
           <Button type="submit" className="w-full" size="lg" loading={loading}>
             Create account

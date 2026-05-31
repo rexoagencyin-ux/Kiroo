@@ -1,14 +1,12 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { CartItem, CartSummary, Product } from '@/lib/types';
 import { AppliedCoupon, computeSummary } from '@/lib/pricing';
-import { useAuth } from './auth-provider';
 
-const GUEST_KEY = 'ms_guest_cart';
+const GUEST_KEY = 'ms_cart';
 
-interface GuestLine {
+interface CartLine {
   product_id: string;
   name: string;
   slug: string;
@@ -41,7 +39,7 @@ export function useCart() {
   return ctx;
 }
 
-function readGuest(): GuestLine[] {
+function readCart(): CartLine[] {
   if (typeof window === 'undefined') return [];
   try {
     return JSON.parse(localStorage.getItem(GUEST_KEY) || '[]');
@@ -49,12 +47,12 @@ function readGuest(): GuestLine[] {
     return [];
   }
 }
-function writeGuest(lines: GuestLine[]) {
-  localStorage.setItem(GUEST_KEY, JSON.stringify(lines));
+function writeCart(lines: CartLine[]) {
+  if (typeof window !== 'undefined') localStorage.setItem(GUEST_KEY, JSON.stringify(lines));
 }
-function toCartItems(lines: GuestLine[]): CartItem[] {
+function toItems(lines: CartLine[]): CartItem[] {
   return lines.map((l, i) => ({
-    id: `guest-${l.product_id}-${l.variant ?? ''}-${i}`,
+    id: `${l.product_id}-${l.variant ?? ''}-${i}`,
     product_id: l.product_id,
     name: l.name,
     slug: l.slug,
@@ -67,120 +65,66 @@ function toCartItems(lines: GuestLine[]): CartItem[] {
   }));
 }
 
+/**
+ * Client-side cart backed by localStorage. Works fully without a backend.
+ * (When the API backend is deployed you can switch this to server-synced.)
+ */
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadServer = useCallback(async () => {
-    const res = await api.get<{ items: CartItem[] }>('/cart');
-    setItems(res.items);
-  }, []);
+  const sync = () => setItems(toItems(readCart()));
 
-  const loadGuest = useCallback(() => {
-    setItems(toCartItems(readGuest()));
-  }, []);
+  const reload = async () => {
+    sync();
+  };
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      if (user) await loadServer();
-      else loadGuest();
-    } catch {
-      loadGuest();
-    } finally {
-      setLoading(false);
-    }
-  }, [user, loadServer, loadGuest]);
-
-  // On login: merge guest cart into server cart, then load server cart.
   useEffect(() => {
-    if (authLoading) return;
-    (async () => {
-      setLoading(true);
-      try {
-        if (user) {
-          const guest = readGuest();
-          if (guest.length) {
-            await api.post('/cart/merge', {
-              items: guest.map((g) => ({ productId: g.product_id, quantity: g.quantity, variant: g.variant })),
-            });
-            writeGuest([]);
-          }
-          await loadServer();
-        } else {
-          loadGuest();
-        }
-      } catch {
-        loadGuest();
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading]);
+    sync();
+    setLoading(false);
+  }, []);
 
   const add = async (product: Product, quantity = 1, variant: string | null = null) => {
-    if (user) {
-      await api.post('/cart', { productId: product.id, quantity, variant: variant ?? undefined });
-      await loadServer();
-    } else {
-      const lines = readGuest();
-      const price = product.is_flash_sale && product.flash_price ? product.flash_price : product.price;
-      const existing = lines.find((l) => l.product_id === product.id && l.variant === variant);
-      if (existing) existing.quantity += quantity;
-      else
-        lines.push({
-          product_id: product.id,
-          name: product.name,
-          slug: product.slug,
-          image: product.images?.[0] ?? null,
-          price,
-          quantity,
-          stock: product.stock,
-          variant,
-        });
-      writeGuest(lines);
-      loadGuest();
-    }
+    const lines = readCart();
+    const price = product.is_flash_sale && product.flash_price ? product.flash_price : product.price;
+    const existing = lines.find((l) => l.product_id === product.id && l.variant === variant);
+    if (existing) existing.quantity += quantity;
+    else
+      lines.push({
+        product_id: product.id,
+        name: product.name,
+        slug: product.slug,
+        image: product.images?.[0] ?? null,
+        price,
+        quantity,
+        stock: product.stock,
+        variant,
+      });
+    writeCart(lines);
+    sync();
   };
 
   const updateQty = async (item: CartItem, quantity: number) => {
     if (quantity < 1) return;
-    if (user) {
-      await api.patch(`/cart/${item.id}`, { quantity });
-      await loadServer();
-    } else {
-      const lines = readGuest();
-      const found = lines.find((l) => l.product_id === item.product_id && l.variant === item.variant);
-      if (found) found.quantity = quantity;
-      writeGuest(lines);
-      loadGuest();
-    }
+    const lines = readCart();
+    const found = lines.find((l) => l.product_id === item.product_id && l.variant === item.variant);
+    if (found) found.quantity = quantity;
+    writeCart(lines);
+    sync();
   };
 
   const remove = async (item: CartItem) => {
-    if (user) {
-      await api.delete(`/cart/${item.id}`);
-      await loadServer();
-    } else {
-      const lines = readGuest().filter(
-        (l) => !(l.product_id === item.product_id && l.variant === item.variant)
-      );
-      writeGuest(lines);
-      loadGuest();
-    }
+    const lines = readCart().filter(
+      (l) => !(l.product_id === item.product_id && l.variant === item.variant)
+    );
+    writeCart(lines);
+    sync();
   };
 
   const clear = async () => {
-    if (user) {
-      await api.delete('/cart');
-      setItems([]);
-    } else {
-      writeGuest([]);
-      setItems([]);
-    }
+    writeCart([]);
+    setItems([]);
     setCoupon(null);
   };
 
@@ -189,19 +133,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CartContext.Provider
-      value={{
-        items,
-        summary,
-        count,
-        coupon,
-        loading,
-        add,
-        updateQty,
-        remove,
-        clear,
-        applyCoupon: setCoupon,
-        reload,
-      }}
+      value={{ items, summary, count, coupon, loading, add, updateQty, remove, clear, applyCoupon: setCoupon, reload }}
     >
       {children}
     </CartContext.Provider>

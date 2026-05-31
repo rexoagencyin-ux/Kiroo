@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useToast } from '@/components/providers/toast-provider';
-import { ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,7 +31,7 @@ export function LoginForm() {
       toast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
       router.push(user.role === 'admin' ? '/admin' : redirect);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Login failed', 'error');
+      toast(err instanceof Error ? err.message : 'Login failed', 'error');
     } finally {
       setLoading(false);
     }
